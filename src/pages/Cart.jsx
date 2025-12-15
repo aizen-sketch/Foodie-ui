@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom"; // 1. IMPORT useNavigate
 import CartItem from "../components/CartItem";
 import { getUserFromToken } from "../utils/auth";
 import { ShoppingCart, Loader2, Frown, DollarSign } from "lucide-react"; // Import icons
@@ -7,13 +8,29 @@ export default function Cart() {
   const [cart, setCart] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  
+  const navigate = useNavigate(); // 2. INITIALIZE useNavigate
+
   // Hardcoded delivery fee for summary display
   const DELIVERY_FEE = 40; 
 
   useEffect(() => {
     loadCartFromBackend();
   }, []);
+
+  // --- LOCAL STATE UPDATE ---
+
+  const updateQuantityLocally = (menuItemId, newQuantity) => {
+      const updatedCart = cart.map(item => {
+          if (item.menuItemId === menuItemId) {
+              return {
+                  ...item,
+                  quantity: newQuantity,
+              };
+          }
+          return item;
+      });
+      setCart(updatedCart);
+  };
 
   // --- Backend Interaction Functions ---
 
@@ -30,8 +47,6 @@ export default function Cart() {
       }
 
       const token = localStorage.getItem("token");
-
-      // 1. Fetch the initial cart structure
       const cartRes = await fetch(
         `http://localhost:8000/order/cart/${user.id}`,
         {
@@ -48,10 +63,7 @@ export default function Cart() {
       const cartData = await cartRes.json();
       const initialCartItems = Array.isArray(cartData.items) ? cartData.items : cartData;
       
-      // 2. Fetch price/details for each item concurrently (Data Enrichment)
       const detailedItemsPromises = initialCartItems.map(async (cartItem) => {
-          
-          // Skip if the item ID is missing
           if (!cartItem.menuItemId) return { ...cartItem, price: 0 }; 
           
           const menuRes = await fetch(`http://localhost:8000/menu/${cartItem.menuItemId}`, {
@@ -60,28 +72,24 @@ export default function Cart() {
 
           if (menuRes.ok) {
               const menuDetails = await menuRes.json();
-              // Merge item details (name, price, imageUrl) into the cart item object
               return { 
                   ...cartItem, 
-                  price: parseFloat(menuDetails.price) || 0, // Ensure price is a number
+                  price: parseFloat(menuDetails.price) || 0,
                   name: menuDetails.name,
                   imageUrl: menuDetails.imageUrl 
               };
           }
-          // Fallback if menu lookup fails
           return { ...cartItem, price: 0, name: "Item Not Found" }; 
       });
 
       const detailedCartItems = await Promise.all(detailedItemsPromises);
-      
-      // 3. Update state with enriched data
       setCart(detailedCartItems); 
 
     } catch (err) {
       console.error(err);
       setError("Failed to load cart. " + err.message);
     } finally {
-      setLoading(false);
+      setLoading(false); 
     }
   };
 
@@ -90,7 +98,6 @@ export default function Cart() {
       const user = await getUserFromToken();
       const token = localStorage.getItem("token");
 
-      // Call backend to remove from cart
       const res = await fetch(
         `http://localhost:8000/order/cart/${user.id}/remove/${itemId}`,
         {
@@ -104,22 +111,65 @@ export default function Cart() {
       if (!res.ok) {
         throw new Error("Server failed to remove item.");
       }
-
-      // Update UI by filtering out the removed item
       setCart(cart.filter((item) => item.menuItemId !== itemId));
     } catch (err) {
       console.error(err);
-      // Use an alert or a toast for immediate feedback
-      alert("Failed to remove item. Please try again.");
+      // NOTE: Using custom modal/toast instead of alert in production
+      alert("Failed to remove item. Please try again."); 
     }
   };
+  
+  // --- CHECKOUT FUNCTION ---
+  const handleCheckout = async () => {
+    const user = await getUserFromToken();
+    if (!user) {
+      setError("Please login to proceed to checkout.");
+      return;
+    }
+
+    try {
+      const checkoutUrl = `http://localhost:8000/order/checkout/${user.id}`;
+      const token = localStorage.getItem("token");
+
+      const res = await fetch(checkoutUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({ /* payload */ }),
+      });
+
+      if (!res.ok) {
+        const errorData = await res.json();
+        throw new Error(errorData.message || `Checkout failed with status: ${res.status}`);
+      }
+      const orderDetails = await res.json();
+
+      const orderId = orderDetails.id; 
+      const totalAmount = orderDetails.totalAmount;
+      // 3. ACTUAL REDIRECTION after successful API call
+      console.log("Checkout successful! Proceeding to Payment.");
+      navigate('/payment', { 
+        state: { 
+            orderId: orderId ,
+            totalAmount: totalAmount
+        } 
+    });
+      
+    } catch (err) {
+      console.error("Checkout Error:", err);
+      setError("Checkout failed: " + err.message);
+      // NOTE: Using custom modal/toast instead of alert in production
+      alert("Checkout failed. Please review your cart.");
+    }
+  };
+
 
   // --- Calculation ---
 
   const getSubtotal = () =>
     cart.reduce((sum, item) => {
-      // Safely parse price and quantity, defaulting to 0 if not a valid number
-      // This is still necessary as a safeguard against corrupted API responses
       const price = parseFloat(item.price) || 0;
       const quantity = parseInt(item.quantity) || 0;
       
@@ -127,7 +177,7 @@ export default function Cart() {
     }, 0).toFixed(2);
      
   const getTotal = () =>
-    (parseFloat(getSubtotal()) + DELIVERY_FEE).toFixed(2);
+    (parseFloat(getSubtotal())*1.05 + DELIVERY_FEE).toFixed(2);
 
   const getTaxAmount = () => 
     (parseFloat(getSubtotal()) * 0.05).toFixed(2);
@@ -188,6 +238,8 @@ export default function Cart() {
                   key={item.menuItemId}
                   item={item}
                   onRemove={() => removeItem(item.menuItemId)}
+                  onLocalUpdate={updateQuantityLocally} 
+                  onUpdateQuantity={loadCartFromBackend} 
                 />
               ))}
             </div>
@@ -227,9 +279,9 @@ export default function Cart() {
               </div>
             </div>
 
-            {/* Checkout Button */}
+            {/* Checkout Button: Updated to call handleCheckout */}
             <button 
-              onClick={() => alert("Proceeding to Checkout!")}
+              onClick={handleCheckout}
               className="
                 w-full mt-6 
                 flex items-center justify-center space-x-2
