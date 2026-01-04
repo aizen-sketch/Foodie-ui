@@ -2,10 +2,14 @@ import React, { useState, useEffect } from "react";
 import axios from "axios";
 import { 
   LayoutDashboard, PlusCircle, Utensils, ShoppingBag, 
-  LogOut, Settings, ChevronRight, Upload, X, Trash2, Edit 
+  LogOut, Settings, ChevronRight, Upload, X, Trash2, Edit, Loader2 
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { useNavigate } from "react-router-dom";
+
+// Constants
+const BASE_URL = "http://localhost:8000/menu";
+const PLACEHOLDER_IMG = "https://images.unsplash.com/photo-1546069901-ba9599a7e63c?q=80&w=200&auto=format&fit=crop";
 
 export default function AdminDashboard() {
   const [activeTab, setActiveTab] = useState("overview");
@@ -71,7 +75,7 @@ export default function AdminDashboard() {
         <header className="flex justify-between items-center mb-12">
           <div>
             <h1 className="text-4xl font-black capitalize tracking-tight">{activeTab.replace("-", " ")}</h1>
-            <p className="text-gray-500 mt-1">Hello, {user?.username || 'Admin'}. Welcome to your control panel.</p>
+            <p className="text-gray-500 mt-1">Hello, {user?.username || 'Admin'}. Welcome back.</p>
           </div>
           
           <div className="flex items-center gap-4">
@@ -86,11 +90,69 @@ export default function AdminDashboard() {
 
         <section className="animate-in fade-in slide-in-from-bottom-6 duration-500">
           {activeTab === "overview" && <OverviewStats />}
-          {activeTab === "add" && <AddMenuItemForm on处Success={() => setActiveTab("manage")} />}
+          {activeTab === "add" && <AddMenuItemForm onSuccess={() => setActiveTab("manage")} />}
           {activeTab === "manage" && <ManageMenuTable />}
           {activeTab === "orders" && <div className="p-10 text-center text-gray-400">Orders tracking module coming soon...</div>}
         </section>
       </main>
+    </div>
+  );
+}
+
+// --- HELPER COMPONENT: SECURE IMAGE LOADER ---
+function SecureMenuImage({ itemId }) {
+  const [imageSrc, setImageSrc] = useState(PLACEHOLDER_IMG);
+  const [loadingImg, setLoadingImg] = useState(true);
+
+  useEffect(() => {
+    let objectUrl = null;
+
+    const fetchAuthorizedImage = async () => {
+      const token = localStorage.getItem("token");
+      const url = `${BASE_URL}/image/${itemId}`;
+
+      if (!itemId || !token) {
+        setLoadingImg(false);
+        return;
+      }
+
+      try {
+        const response = await fetch(url, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+
+        if (!response.ok) throw new Error("Image not found");
+
+        const imageBlob = await response.blob();
+        objectUrl = URL.createObjectURL(imageBlob);
+        setImageSrc(objectUrl);
+      } catch (error) {
+        console.error("Error fetching image:", error);
+        setImageSrc(PLACEHOLDER_IMG);
+      } finally {
+        setLoadingImg(false);
+      }
+    };
+
+    fetchAuthorizedImage();
+
+    return () => {
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [itemId]);
+
+  return (
+    <div className="w-full h-full relative bg-gray-100 dark:bg-gray-800">
+      {loadingImg && (
+        <div className="absolute inset-0 flex items-center justify-center">
+          <Loader2 className="animate-spin text-gray-300" size={16} />
+        </div>
+      )}
+      <img 
+        src={imageSrc} 
+        className={`w-full h-full object-cover transition-opacity duration-300 ${loadingImg ? 'opacity-0' : 'opacity-100'}`} 
+        alt="Menu Item" 
+      />
     </div>
   );
 }
@@ -111,26 +173,26 @@ function AddMenuItemForm({ onSuccess }) {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setLoading(true);
-    
-    const data = new FormData();
-    data.append("name", formData.name);
-    data.append("price", formData.price);
-    data.append("description", formData.description);
-    data.append("image", formData.image);
+    if (!formData.image) return alert("Please upload an image");
 
+    setLoading(true);
     try {
       const token = localStorage.getItem("token");
-      await axios.post("http://localhost:8000/menu/add", data, {
-        headers: { 
-          "Content-Type": "multipart/form-data",
-          Authorization: `Bearer ${token}` 
-        }
+      const data = new FormData();
+      const menuObj = { name: formData.name, price: Number(formData.price), description: formData.description };
+      const menuBlob = new Blob([JSON.stringify(menuObj)], { type: "application/json" });
+
+      data.append("menu", menuBlob, "data.json"); 
+      data.append("image", formData.image);
+
+      await axios.post(`${BASE_URL}/add`, data, {
+        headers: { Authorization: `Bearer ${token}` }
       });
+
       alert("Item added successfully!");
       onSuccess?.();
     } catch (err) {
-      alert("Error adding item");
+      alert(err.response?.data?.message || "Error adding item");
     } finally {
       setLoading(false);
     }
@@ -174,7 +236,13 @@ function AddMenuItemForm({ onSuccess }) {
           {preview ? (
             <>
               <img src={preview} className="w-full h-full object-cover" alt="Preview" />
-              <button onClick={() => setPreview(null)} className="absolute top-4 right-4 bg-white p-2 rounded-full text-red-500 shadow-xl hover:scale-110 transition-transform"><X size={18}/></button>
+              <button 
+                type="button"
+                onClick={() => {setPreview(null); setFormData({...formData, image: null})}} 
+                className="absolute top-4 right-4 bg-white p-2 rounded-full text-red-500 shadow-xl"
+              >
+                <X size={18}/>
+              </button>
             </>
           ) : (
             <label className="cursor-pointer text-center p-10">
@@ -186,9 +254,9 @@ function AddMenuItemForm({ onSuccess }) {
         </div>
         <button 
           disabled={loading}
-          className="mt-6 w-full bg-indigo-600 text-white p-5 rounded-2xl font-bold text-lg hover:bg-indigo-700 shadow-lg shadow-indigo-500/20 disabled:opacity-50"
+          className="mt-6 w-full bg-indigo-600 text-white p-5 rounded-2xl font-bold text-lg hover:bg-indigo-700 disabled:opacity-50 flex items-center justify-center gap-2"
         >
-          {loading ? "Adding Item..." : "Save to Menu"}
+          {loading ? <><Loader2 className="animate-spin" /> Processing...</> : "Save to Menu"}
         </button>
       </div>
     </form>
@@ -196,70 +264,248 @@ function AddMenuItemForm({ onSuccess }) {
 }
 
 // --- SUB-COMPONENT: MANAGE MENU TABLE ---
+// --- SUB-COMPONENT: MANAGE MENU TABLE ---
 function ManageMenuTable() {
   const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+  
+  // States for Editing
+  const [editingItem, setEditingItem] = useState(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
 
   useEffect(() => {
     fetchMenu();
   }, []);
 
   const fetchMenu = async () => {
+    setLoading(true);
     try {
-      const res = await axios.get("http://localhost:8000/menu/all");
+      const token = localStorage.getItem("token");
+      const res = await axios.get(`${BASE_URL}/all`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
       setItems(res.data);
-    } catch (err) { console.error(err); }
+    } catch (err) { 
+      console.error(err); 
+    } finally {
+      setLoading(false);
+    }
   };
 
   const deleteItem = async (id) => {
-    if (!window.confirm("Delete this dish?")) return;
+    if (!window.confirm("Delete this menu item?")) return;
     try {
       const token = localStorage.getItem("token");
-      await axios.delete(`http://localhost:8000/menu/delete/${id}`, {
+      await axios.delete(`${BASE_URL}/delete/${id}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      setItems(items.filter(item => item.id !== id));
-    } catch (err) { alert("Failed to delete"); }
+      setItems(prev => prev.filter(item => item.id !== id));
+    } catch (err) { alert("Delete failed"); }
   };
 
+  const handleEditClick = (item) => {
+    setEditingItem(item);
+    setIsModalOpen(true);
+  };
+
+  if (loading) return (
+    <div className="flex flex-col items-center justify-center p-20 bg-white dark:bg-gray-900 rounded-[2.5rem]">
+      <Loader2 className="w-8 h-8 text-indigo-500 animate-spin mb-4" />
+      <p className="text-gray-400 font-bold">Loading Menu...</p>
+    </div>
+  );
+
   return (
-    <div className="bg-white dark:bg-gray-900 rounded-[2.5rem] overflow-hidden border border-gray-100 dark:border-gray-800">
-      <table className="w-full text-left border-collapse">
-        <thead className="bg-gray-50 dark:bg-gray-800">
-          <tr>
-            <th className="p-6 text-sm font-bold text-gray-400 uppercase">Item</th>
-            <th className="p-6 text-sm font-bold text-gray-400 uppercase">Price</th>
-            <th className="p-6 text-sm font-bold text-gray-400 uppercase text-center">Actions</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
-          {items.map(item => (
-            <tr key={item.id} className="hover:bg-gray-50/50 dark:hover:bg-gray-800/50 transition-colors">
-              <td className="p-6">
-                <div className="flex items-center gap-4">
-                  <div className="w-16 h-16 rounded-2xl bg-gray-100 overflow-hidden">
-                    <img src={`http://localhost:8000/menu/image/${item.id}`} alt="" className="w-full h-full object-cover" />
-                  </div>
-                  <div>
-                    <p className="font-bold text-lg">{item.name}</p>
-                    <p className="text-sm text-gray-400 truncate w-48">{item.description}</p>
-                  </div>
-                </div>
-              </td>
-              <td className="p-6 font-bold text-indigo-600">₹{item.price}</td>
-              <td className="p-6">
-                <div className="flex justify-center gap-2">
-                  <button className="p-3 bg-gray-100 dark:bg-gray-800 rounded-xl text-gray-500 hover:text-indigo-600 transition-colors"><Edit size={18}/></button>
-                  <button onClick={() => deleteItem(item.id)} className="p-3 bg-red-50 dark:bg-red-900/10 rounded-xl text-red-500 hover:bg-red-500 hover:text-white transition-all"><Trash2 size={18}/></button>
-                </div>
-              </td>
+    <div className="relative">
+      <div className="bg-white dark:bg-gray-900 rounded-[2.5rem] overflow-hidden border border-gray-100 dark:border-gray-800 shadow-sm">
+        <table className="w-full text-left border-collapse">
+          <thead className="bg-gray-50 dark:bg-gray-800">
+            <tr>
+              <th className="p-6 text-xs font-black text-gray-400 uppercase tracking-widest">Dish</th>
+              <th className="p-6 text-xs font-black text-gray-400 uppercase tracking-widest">Price</th>
+              <th className="p-6 text-xs font-black text-gray-400 uppercase tracking-widest text-center">Actions</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+            {items.map(item => (
+              <tr key={item.id} className="hover:bg-gray-50/50 dark:hover:bg-gray-800/50 transition-colors group">
+                <td className="p-6">
+                  <div className="flex items-center gap-4">
+                    <div className="w-16 h-16 rounded-2xl bg-gray-100 overflow-hidden border border-gray-200">
+                      <SecureMenuImage itemId={item.id} />
+                    </div>
+                    <div>
+                      <p className="font-bold text-lg">{item.name}</p>
+                      <p className="text-sm text-gray-500 dark:text-gray-400 line-clamp-1">{item.description}</p>
+                    </div>
+                  </div>
+                </td>
+                <td className="p-6 font-black text-indigo-600">₹{item.price}</td>
+                <td className="p-6">
+                  <div className="flex justify-center gap-2">
+                    {/* EDIT BUTTON */}
+                    <button 
+                      onClick={() => handleEditClick(item)}
+                      className="p-3 bg-gray-100 dark:bg-gray-800 rounded-xl text-gray-500 hover:text-indigo-600 transition-all"
+                    >
+                      <Edit size={18}/>
+                    </button>
+                    <button 
+                      onClick={() => deleteItem(item.id)} 
+                      className="p-3 bg-red-50 dark:bg-red-900/10 rounded-xl text-red-500 hover:bg-red-500 hover:text-white transition-all"
+                    >
+                      <Trash2 size={18}/>
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* --- EDIT MODAL --- */}
+      {isModalOpen && (
+        <EditItemModal 
+          item={editingItem} 
+          onClose={() => setIsModalOpen(false)} 
+          onUpdate={fetchMenu} 
+        />
+      )}
     </div>
   );
 }
 
+// --- SUB-COMPONENT: EDIT MODAL ---
+function EditItemModal({ item, onClose, onUpdate }) {
+  // Access user data from AuthContext to get ID and Role
+  const { user } = useAuth(); 
+  
+  const [formData, setFormData] = useState({ 
+    name: item.name, 
+    price: item.price, 
+    description: item.description,
+    image: null 
+  });
+  const [loading, setLoading] = useState(false);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+
+    try {
+      const token = localStorage.getItem("token");
+      const data = new FormData();
+      
+      const menuObj = { 
+        name: formData.name, 
+        price: Number(formData.price), 
+        description: formData.description 
+      };
+
+      // Wrap JSON in Blob for @RequestPart("menu")
+      const menuBlob = new Blob([JSON.stringify(menuObj)], { type: "application/json" });
+      data.append("menu", menuBlob); 
+
+      /**
+       * IMPORTANT: Your backend @RequestPart("image") is likely mandatory.
+       * If the user didn't pick a new image, you might need to send a blank file 
+       * or handle the "required=false" on the Java side.
+       */
+      if (formData.image) {
+        data.append("image", formData.image);
+      } else {
+        // Sending a dummy blob if your Java backend requires the 'image' part to exist
+        data.append("image", new Blob(), ""); 
+      }
+
+      // API Call to @PostMapping("update/{id}")
+      await axios.post(`${BASE_URL}/update/${item.id}`, data, {
+        headers: { 
+          "Authorization": `Bearer ${token}`,
+          "Content-Type": "multipart/form-data",
+          "X-User-Id": user?.id || "",        // Maps to @RequestHeader("X-User-Id")
+          "X-User-Role": user?.role || ""      // Maps to @RequestHeader("X-User-Role")
+        }
+      });
+
+      alert("Updated successfully!");
+      onUpdate(); 
+      onClose();  
+    } catch (err) {
+      console.error("Update error:", err.response?.data);
+      alert(err.response?.data?.message || "Update failed. Check your admin permissions.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+      <div className="bg-white dark:bg-gray-900 w-full max-w-xl rounded-[2.5rem] shadow-2xl overflow-hidden">
+        <div className="p-8 border-b border-gray-100 dark:border-gray-800 flex justify-between items-center">
+          <h2 className="text-2xl font-black">Edit Menu Item</h2>
+          <button onClick={onClose} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full">
+            <X size={24} />
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="p-8 space-y-5">
+          {/* ... inputs for name, price, description stay the same ... */}
+          
+          <div>
+            <label className="block text-xs font-black text-gray-400 uppercase mb-2">Food Name</label>
+            <input 
+              type="text" required
+              className="w-full p-4 bg-gray-50 dark:bg-gray-800 rounded-2xl outline-none ring-indigo-500 focus:ring-2"
+              value={formData.name}
+              onChange={(e) => setFormData({...formData, name: e.target.value})}
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-black text-gray-400 uppercase mb-2">Price (₹)</label>
+            <input 
+              type="number" required
+              className="w-full p-4 bg-gray-50 dark:bg-gray-800 rounded-2xl outline-none ring-indigo-500 focus:ring-2"
+              value={formData.price}
+              onChange={(e) => setFormData({...formData, price: e.target.value})}
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-black text-gray-400 uppercase mb-2">Description</label>
+            <textarea 
+              rows="3" required
+              className="w-full p-4 bg-gray-50 dark:bg-gray-800 rounded-2xl outline-none ring-indigo-500 focus:ring-2"
+              value={formData.description}
+              onChange={(e) => setFormData({...formData, description: e.target.value})}
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-black text-gray-400 uppercase mb-2">Replace Image</label>
+            <input 
+              type="file" 
+              accept="image/*"
+              className="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-bold file:bg-indigo-50 file:text-indigo-700"
+              onChange={(e) => setFormData({...formData, image: e.target.files[0]})}
+            />
+          </div>
+
+          <button 
+            disabled={loading}
+            className="w-full bg-indigo-600 text-white p-5 rounded-2xl font-black text-lg hover:bg-indigo-700 flex items-center justify-center gap-2"
+          >
+            {loading ? <Loader2 className="animate-spin" /> : "Save Changes"}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// Stats Components (OverviewStats & StatCard) remain same as before...
 function OverviewStats() {
   return (
     <div className="grid grid-cols-1 md:grid-cols-3 gap-8">

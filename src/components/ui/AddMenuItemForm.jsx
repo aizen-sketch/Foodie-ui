@@ -28,31 +28,54 @@ function AddMenuItemForm() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    
+    if (!formData.image) {
+      alert("Please select an image");
+      return;
+    }
+  
     setLoading(true);
-
-    // Using FormData for Multipart File Upload
-    const data = new FormData();
-    data.append("name", formData.name);
-    data.append("price", formData.price);
-    data.append("description", formData.description);
-    data.append("image", formData.image);
-
+  
     try {
       const token = localStorage.getItem("token");
-      await axios.post("http://localhost:8000/menu/add", data, {
+      const data = new FormData();
+  
+      // 1. Prepare JSON
+      const menuInfo = {
+        name: formData.name,
+        price: Number(formData.price),
+        description: formData.description,
+      };
+  
+      // 2. Wrap in Blob with explicit type
+      const menuBlob = new Blob([JSON.stringify(menuInfo)], {
+        type: "application/json",
+      });
+  
+      // 3. Append parts
+      // ADDITION: Add a dummy filename 'data.json' as the third argument. 
+      // This helps Spring Boot recognize it as a valid @RequestPart.
+      data.append("menu", menuBlob, "data.json"); 
+      data.append("image", formData.image);
+  
+      // 4. Send the request
+      const response = await axios.post("http://localhost:8000/menu/add", data, {
         headers: {
-          "Content-Type": "multipart/form-data",
           Authorization: `Bearer ${token}`,
+          // Let Axios handle 'Content-Type', do not set it here!
         },
       });
-
+  
+      console.log("Success:", response.data);
       alert("Item Added Successfully!");
-      // Reset form
+      
       setFormData({ name: "", price: "", description: "", image: null });
       setPreview(null);
+  
     } catch (err) {
-      console.error(err);
-      alert("Failed to add item. Check console for details.");
+      console.error("Upload Error:", err.response?.data || err.message);
+      // Log the actual server error to see if it's a 415 or 400
+      alert("Error: " + (err.response?.data?.message || "Check console"));
     } finally {
       setLoading(false);
     }
