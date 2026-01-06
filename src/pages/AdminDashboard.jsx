@@ -6,6 +6,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { useNavigate } from "react-router-dom";
+import AllOrdersTable from "../pages/AllOrdersTable";
 
 // Constants
 const BASE_URL = "http://localhost:8000/menu";
@@ -92,7 +93,7 @@ export default function AdminDashboard() {
           {activeTab === "overview" && <OverviewStats />}
           {activeTab === "add" && <AddMenuItemForm onSuccess={() => setActiveTab("manage")} />}
           {activeTab === "manage" && <ManageMenuTable />}
-          {activeTab === "orders" && <div className="p-10 text-center text-gray-400">Orders tracking module coming soon...</div>}
+          {activeTab === "orders" && <AllOrdersTable />}
         </section>
       </main>
     </div>

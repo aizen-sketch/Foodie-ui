@@ -16,67 +16,74 @@ import Payment from "./pages/Payment";
 import PaymentSuccess from "./pages/PaymentSuccess"; 
 import MyOrders from "./pages/MyOrders";             
 import MyProfile from "./pages/MyProfile";
-
-// --- 1. IMPORT ADMIN DASHBOARD ---
 import AdminDashboard from "./pages/AdminDashboard";
 
-// --- 2. PROTECTED ROUTE COMPONENT ---
-// This checks if the user is logged in and has the ADMIN role
+// --- PROTECTED ROUTE: ADMIN ONLY ---
 const AdminRoute = ({ children }) => {
   const { user, token, loading } = useAuth();
   
-  // 1. If the AuthContext is still decoding the token, show nothing or a spinner
-  // This prevents the "unauthorized" redirect from happening too early
   if (loading) {
-    return <div className="h-screen flex items-center justify-center">Verifying...</div>;
+    return (
+      <div className="h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-950">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-indigo-600"></div>
+      </div>
+    );
   }
   
-  // 2. ONLY redirect if loading is finished AND the user is definitely not an admin
+  // Checks for both token presence and the specific ADMIN role
   if (!token || user?.role !== "ADMIN") {
-    console.log("Access denied. Role is:", user?.role);
     return <Navigate to="/" replace />;
   }
   
   return children;
 };
 
+// --- PROTECTED ROUTE: ANY LOGGED IN USER ---
+const PrivateRoute = ({ children }) => {
+  const { token, loading } = useAuth();
+  if (loading) return null; 
+  return token ? children : <Navigate to="/" replace />;
+};
+
 export default function App() {
   return (
     <AuthProvider>
       <Router>
-        <Navbar />
+        <div className="flex flex-col min-h-screen bg-white dark:bg-gray-950">
+          <Navbar />
 
-        <div className="min-h-screen pt-0"> 
-          <Routes>
-            {/* Public Routes */}
-            <Route path="/" element={<Home />} />
-            <Route path="/menu" element={<Menu />} />
-            <Route path="/about" element={<About />} />
-            <Route path="/contact" element={<Contact />} /> 
-            
-            {/* User Routes (Should ideally be protected too) */}
-            <Route path="/cart" element={<Cart />} />
-            <Route path="/payment" element={<Payment />} /> 
-            <Route path="/payment-success" element={<PaymentSuccess />} /> 
-            <Route path="/orders" element={<MyOrders />} />                
-            <Route path="/profile" element={<MyProfile />} />
+          <main className="flex-grow"> 
+            <Routes>
+              {/* Public Routes */}
+              <Route path="/" element={<Home />} />
+              <Route path="/menu" element={<Menu />} />
+              <Route path="/about" element={<About />} />
+              <Route path="/contact" element={<Contact />} /> 
+              
+              {/* Protected User Routes */}
+              <Route path="/cart" element={<PrivateRoute><Cart /></PrivateRoute>} />
+              <Route path="/payment" element={<PrivateRoute><Payment /></PrivateRoute>} /> 
+              <Route path="/payment-success" element={<PrivateRoute><PaymentSuccess /></PrivateRoute>} /> 
+              <Route path="/orders" element={<PrivateRoute><MyOrders /></PrivateRoute>} />                
+              <Route path="/profile" element={<PrivateRoute><MyProfile /></PrivateRoute>} />
 
-            {/* --- 3. ADMIN PROTECTED ROUTE --- */}
-            <Route 
-              path="/admin-dashboard" 
-              element={
-                <AdminRoute>
-                  <AdminDashboard />
-                </AdminRoute>
-              } 
-            />
+              {/* Protected Admin Route */}
+              <Route 
+                path="/admin" 
+                element={
+                  <AdminRoute>
+                    <AdminDashboard />
+                  </AdminRoute>
+                } 
+              />
 
-            {/* Catch-all for 404s */}
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
+              {/* Redirect any unknown routes to Home */}
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+          </main>
+
+          <Footer />
         </div>
-
-        <Footer />
       </Router>
     </AuthProvider>
   );
